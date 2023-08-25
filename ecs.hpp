@@ -11,10 +11,11 @@
 #include <set>
 #include <unordered_map>
 
-using Entity = unsigned long;
-
 #define MAX_ENTITIES 10000
 #define MAX_COMPONENTS 32
+
+using Entity = unsigned long;
+using Signature = std::bitset<MAX_COMPONENTS>;
 
 class IComponentArray {
    public:
@@ -24,11 +25,14 @@ class IComponentArray {
 
 template <typename T>
 class ComponentList : public IComponentArray {
+
+    friend class Registry;
+
    public:
     void OnEntityDelete(const Entity) override;
     void AddComponent(const Entity, const T &);
     void RemoveComponent(const Entity);
-    T GetComponent(Entity e);
+    T& GetComponent(Entity e);
 
    private:
     std::array<T, MAX_ENTITIES> m_array;
@@ -41,9 +45,14 @@ template <typename T>
 inline size_t GetId();
 
 class ISystem {
+   protected:
+    std::set<Entity> m_entities;
+
    public:
     virtual void update(float) = 0;
     virtual ~ISystem() = default;
+    void AddEntity(Entity e);
+    void RemoveEntity(Entity e);
 };
 
 class Registry {
@@ -55,6 +64,9 @@ class Registry {
 
     template <typename T>
     static std::shared_ptr<ComponentList<T>> GetComponentArray();
+
+    template <typename T>
+    static T& GetComponent(Entity e);
 
     template <typename T>
     static void AddComponent(Entity e, T component);
@@ -73,28 +85,38 @@ class Registry {
     static std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
         component_lists;
     static std::deque<Entity> available_entities;
-    static std::unordered_map<Entity, std::bitset<MAX_COMPONENTS>> entity_signatures;
+    static std::unordered_map<Entity, Signature> entity_signatures;
     template <typename T>
     static bool is_comp_registered();
 };
 
 class Coordinator {
    private:
-    std::unordered_map<size_t, std::shared_ptr<ISystem>> systems;
+    static std::unordered_map<size_t, std::shared_ptr<ISystem>> systems;
+    static std::unordered_map<size_t, Signature> system_signatures;
 
    public:
     template <typename T>
-    bool LoadSystem(std::shared_ptr<T> system);
+    static bool LoadSystem(std::shared_ptr<T> system);
     template <typename T>
-    bool UnloadSystem();
-    void update(float dt);
+    static bool UnloadSystem();
+    static void EntityUpdated(Entity, Signature, Signature);
+    static void update(float dt);
+    static void OnEntityDestroyed(Entity);
 };
 
 inline size_t counter = 0;
+inline size_t system_counter = 0;
 
 template <typename T>
 inline size_t GetId() {
     static size_t id = counter++;
+    return id;
+}
+
+template <typename T>
+inline size_t GetSystemId() {
+    static size_t id = system_counter++;
     return id;
 }
 
@@ -126,7 +148,7 @@ void ComponentList<T>::RemoveComponent(const Entity e) {
 }
 
 template <typename T>
-T ComponentList<T>::GetComponent(Entity e) {
+T& ComponentList<T>::GetComponent(Entity e) {
     if (m_entityToIndexMap.find(e) != m_entityToIndexMap.end()) {
         return m_array[m_entityToIndexMap[e]];
     }
@@ -151,9 +173,18 @@ std::shared_ptr<ComponentList<T>> Registry::GetComponentArray() {
 }
 
 template <typename T>
+T& Registry::GetComponent(Entity e) {
+    return GetComponentArray<T>()->GetComponent(e);
+}
+
+template <typename T>
 void Registry::AddComponent(Entity e, T component) {
     auto id = GetId<T>();
     if (is_comp_registered<T>()) {
+        auto signature = entity_signatures[e];
+        auto old = signature;
+        signature.set(GetId<T>(), true);
+        Coordinator::EntityUpdated(e, signature, old);
         GetComponentArray<T>()->AddComponent(e, component);
     }
 }
@@ -162,6 +193,10 @@ template <typename T>
 void Registry::RemoveComponent(Entity e) {
     auto id = GetId<T>();
     if (is_comp_registered<T>()) {
+        auto signature = entity_signatures[e];
+        auto old = signature;
+        signature.set(GetId<T>(), false);
+        Coordinator::EntityUpdated(e, signature, old);
         GetComponentArray<T>()->RemoveComponent(e);
     }
 }
@@ -175,7 +210,7 @@ bool Registry::is_comp_registered() {
 
 template <typename T>
 bool Coordinator::LoadSystem(std::shared_ptr<T> system) {
-    auto id = GetId<T>();
+    auto id = GetSystemId<T>();
     if (systems.find(id) == std::end(systems)) {
         systems[id] = system;
         return true;
@@ -185,7 +220,7 @@ bool Coordinator::LoadSystem(std::shared_ptr<T> system) {
 
 template <typename T>
 bool Coordinator::UnloadSystem() {
-    auto id = GetId<T>();
+    auto id = GetSystemId<T>();
     if (systems.find(id) != std::end(systems)) {
         systems.erase(id);
         return true;
