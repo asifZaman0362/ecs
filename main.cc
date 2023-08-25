@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <SFML/Graphics.hpp>
 
 Color rand_col() {
     int x = rand() % 4;
@@ -28,6 +29,9 @@ Velocity rand_vel() {
 }
 
 int main() {
+    sf::RenderWindow window;
+    window.create(sf::VideoMode(800, 640), "ecs");    
+    window.setVerticalSyncEnabled(false);
     srand(time(0));
     Coordinator coordinator;
     bool res = 0;
@@ -43,8 +47,11 @@ int main() {
         Registry::AddComponent<Position>(e, rand_pos());
         Registry::AddComponent<Velocity>(e, rand_vel());
     }
-    while (true) {
+    bool running = true;
+    while (running) {
+        window.clear(sf::Color::Red);
         coordinator.update(1.0f);
+        window.display();
     }
     return 0;
 }
