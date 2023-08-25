@@ -7,4 +7,5 @@ struct Color {
 class ColorSystem : public ISystem {
    public:
     void update(float) override;
+    Signature GetSignature() override;
 };

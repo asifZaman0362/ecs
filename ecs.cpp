@@ -1,8 +1,7 @@
 #include "ecs.hpp"
 
 std::array<size_t, MAX_COMPONENTS> Registry::registered_components;
-std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
-    Registry::component_lists;
+std::unordered_map<size_t, std::shared_ptr<IComponentArray>> Registry::component_lists;
 std::deque<Entity> Registry::available_entities;
 std::unordered_map<Entity, Signature> Registry::entity_signatures;
 

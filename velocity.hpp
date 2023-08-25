@@ -7,4 +7,5 @@ struct Velocity {
 class VelocitySystem : public ISystem {
    public:
     void update(float) override;
+    Signature GetSignature() override;
 };

@@ -7,4 +7,5 @@ struct __attribute__((packed)) Position {
 class PosSys : public ISystem {
    public:
     void update(float) override;
+    Signature GetSignature() override;
 };

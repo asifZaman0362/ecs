@@ -40,20 +40,21 @@ int main() {
     window.create(sf::VideoMode(800, 640), "ecs");    
     window.setVerticalSyncEnabled(false);
     srand(time(0));
-    Coordinator coordinator;
     bool res = 0;
-    res = coordinator.LoadSystem(std::make_shared<ColorSystem>());
-    res = coordinator.LoadSystem(std::make_shared<PosSys>());
-    res = coordinator.LoadSystem(std::make_shared<VelocitySystem>());
-    res = coordinator.LoadSystem(std::make_shared<RenderSystem>(&window));
+    res = Coordinator::LoadSystem<ColorSystem>(std::make_shared<ColorSystem>());
+    res = Coordinator::LoadSystem<PosSys>(std::make_shared<PosSys>());
+    res = Coordinator::LoadSystem<VelocitySystem>(std::make_shared<VelocitySystem>());
+    res = Coordinator::LoadSystem<RenderSystem>(std::make_shared<RenderSystem>(&window));
     Registry::RegisterComponent<Color>();
     Registry::RegisterComponent<Position>();
     Registry::RegisterComponent<Velocity>();
+    Registry::RegisterComponent<sf::CircleShape>();
     for (int i = 0; i < 20; i++) {
         Entity e = Registry::CreateEntity();
         Registry::AddComponent<Color>(e, rand_col());
         Registry::AddComponent<Position>(e, rand_pos());
         Registry::AddComponent<Velocity>(e, rand_vel());
+        Registry::AddComponent<sf::CircleShape>(e, rand_circle());
     }
     bool running = true;
     while (running) {
@@ -62,7 +63,7 @@ int main() {
             if (e.type == sf::Event::Closed) running = false;
         }
         window.clear(sf::Color::Red);
-        coordinator.update(1.0f);
+        Coordinator::update(1.0f);
         window.display();
     }
     Coordinator::UnloadSystem<ColorSystem>();

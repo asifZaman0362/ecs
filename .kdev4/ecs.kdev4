@@ -12,5 +12,8 @@ CMake Binary=/run/current-system/sw/bin/cmake
 CMake Executable=/run/current-system/sw/bin/cmake
 Environment Profile=
 Extra Arguments=
-Install Directory=
+Install Directory=/var/empty/local
 Runtime=Host System
+
+[Project]
+VersionControlSupport=kdevgit
