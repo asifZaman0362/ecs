@@ -8,6 +8,7 @@
 #include <deque>
 #include <list>
 #include <memory>
+#include <set>
 #include <unordered_map>
 
 using Entity = unsigned long;
@@ -27,6 +28,7 @@ class ComponentList : public IComponentArray {
     void OnEntityDelete(const Entity) override;
     void AddComponent(const Entity, const T &);
     void RemoveComponent(const Entity);
+    T GetComponent(Entity e);
 
    private:
     std::array<T, MAX_ENTITIES> m_array;
@@ -37,7 +39,6 @@ class ComponentList : public IComponentArray {
 
 template <typename T>
 inline size_t GetId();
-
 
 class ISystem {
    public:
@@ -50,27 +51,31 @@ class Registry {
     Registry();
 
     template <typename T>
-    size_t RegisterComponent();
+    static size_t RegisterComponent();
 
     template <typename T>
-    std::shared_ptr<ComponentList<T>> GetComponentArray();
+    static std::shared_ptr<ComponentList<T>> GetComponentArray();
 
     template <typename T>
-    void AddComponent(Entity e, T component);
+    static void AddComponent(Entity e, T component);
 
     template <typename T>
-    void RemoveComponent(Entity e);
+    static void RemoveComponent(Entity e);
 
-    void EntityDestroyed(Entity e);
+    static void EntityDestroyed(Entity e);
 
-    Entity CreateEntity();
+    static Entity CreateEntity();
+
+    static std::set<Entity> filter(std::bitset<MAX_COMPONENTS>);
 
    private:
-    std::array<size_t, MAX_COMPONENTS> registered_components;
-    std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
+    static std::array<size_t, MAX_COMPONENTS> registered_components;
+    static std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
         component_lists;
-    std::deque<Entity> available_entities; template <typename T>
-    bool is_comp_registered();
+    static std::deque<Entity> available_entities;
+    static std::unordered_map<Entity, std::bitset<MAX_COMPONENTS>> entity_signatures;
+    template <typename T>
+    static bool is_comp_registered();
 };
 
 class Coordinator {
@@ -120,6 +125,12 @@ void ComponentList<T>::RemoveComponent(const Entity e) {
     m_length--;
 }
 
+template <typename T>
+T ComponentList<T>::GetComponent(Entity e) {
+    if (m_entityToIndexMap.find(e) != m_entityToIndexMap.end()) {
+        return m_array[m_entityToIndexMap[e]];
+    }
+}
 
 template <typename T>
 size_t Registry::RegisterComponent() {
@@ -155,7 +166,6 @@ void Registry::RemoveComponent(Entity e) {
     }
 }
 
-
 template <typename T>
 bool Registry::is_comp_registered() {
     auto id = GetId<T>();
@@ -163,8 +173,7 @@ bool Registry::is_comp_registered() {
                      id) != std::end(registered_components);
 }
 
-
-template<typename T>
+template <typename T>
 bool Coordinator::LoadSystem(std::shared_ptr<T> system) {
     auto id = GetId<T>();
     if (systems.find(id) == std::end(systems)) {
@@ -183,6 +192,5 @@ bool Coordinator::UnloadSystem() {
     }
     return false;
 }
-
 
 #endif

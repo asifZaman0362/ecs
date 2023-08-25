@@ -30,19 +30,18 @@ Velocity rand_vel() {
 int main() {
     srand(time(0));
     Coordinator coordinator;
-    Registry registry;
     bool res = 0;
     res = coordinator.LoadSystem(std::make_shared<ColorSystem>());
     res = coordinator.LoadSystem(std::make_shared<PosSys>());
     res = coordinator.LoadSystem(std::make_shared<VelocitySystem>());
-    registry.RegisterComponent<Color>();
-    registry.RegisterComponent<Position>();
-    registry.RegisterComponent<Velocity>();
+    Registry::RegisterComponent<Color>();
+    Registry::RegisterComponent<Position>();
+    Registry::RegisterComponent<Velocity>();
     for (int i = 0; i < 20; i++) {
-        Entity e = registry.CreateEntity();
-        registry.AddComponent<Color>(e, rand_col());
-        registry.AddComponent<Position>(e, rand_pos());
-        registry.AddComponent<Velocity>(e, rand_vel());
+        Entity e = Registry::CreateEntity();
+        Registry::AddComponent<Color>(e, rand_col());
+        Registry::AddComponent<Position>(e, rand_pos());
+        Registry::AddComponent<Velocity>(e, rand_vel());
     }
     while (true) {
         coordinator.update(1.0f);
