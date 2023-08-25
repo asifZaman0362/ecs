@@ -3,6 +3,8 @@
 
 class RenderSystem : ISystem {
     public:
-     RenderSystem(sf::RenderTarget& target);
+     RenderSystem(sf::RenderTarget* target);
      void update(float) override;
+    private:
+     sf::RenderTarget* target;
 };
