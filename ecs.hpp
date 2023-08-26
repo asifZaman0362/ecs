@@ -10,9 +10,11 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <cassert>
+#include <algorithm>
 
 #define MAX_COMPONENTS 32
-#define MAX_ENTITIES 10000
+#define MAX_ENTITIES 100000
 
 using Entity = size_t;
 using Signature = std::bitset<MAX_COMPONENTS>;
@@ -42,7 +44,7 @@ class ComponentArray : public IComponentArray {
     void OnEntityRemoved(Entity) override;
 
    private:
-    T m_items[MAX_COMPONENTS];
+    T m_items[MAX_ENTITIES];
     std::unordered_map<Entity, size_t> m_entityToIndexMap;
     std::unordered_map<size_t, Entity> m_indexToEntityMap;
     size_t m_length = 0;
