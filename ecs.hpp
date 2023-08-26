@@ -1,255 +1,311 @@
 #ifndef ECS_HPP
 #define ECS_HPP
 
-#include <algorithm>
 #include <array>
 #include <bitset>
 #include <cstddef>
 #include <deque>
-#include <list>
 #include <memory>
 #include <set>
+#include <type_traits>
 #include <unordered_map>
-#include <iostream>
+#include <utility>
 
-#define MAX_ENTITIES 10000
 #define MAX_COMPONENTS 32
+#define MAX_ENTITIES 10000
 
-using Entity = unsigned long;
+using Entity = size_t;
 using Signature = std::bitset<MAX_COMPONENTS>;
 
 class IComponentArray {
    public:
-    virtual ~IComponentArray() = default;
-    virtual void OnEntityDelete(const Entity) = 0;
+    virtual void OnEntityRemoved(Entity) = 0;
+};
+
+class ISystem {
+   public:
+    virtual Signature GetSignature() = 0;
+    virtual void Update(float) = 0;
+    void AddEntity(Entity);
+    void RemoveEntity(Entity);
+
+   protected:
+    std::set<Entity> m_entities;
 };
 
 template <typename T>
-class ComponentList : public IComponentArray {
-
-    friend class Registry;
-
+class ComponentArray : public IComponentArray {
    public:
-    void OnEntityDelete(const Entity) override;
-    void AddComponent(const Entity, const T &);
-    void RemoveComponent(const Entity);
-    T& GetComponent(Entity e);
+    T* GetComponent(Entity);
+    void AddComponent(Entity, const T&);
+    void RemoveComponent(Entity);
+    void OnEntityRemoved(Entity) override;
 
    private:
-    std::array<T, MAX_ENTITIES> m_array;
+    T m_items[MAX_COMPONENTS];
     std::unordered_map<Entity, size_t> m_entityToIndexMap;
     std::unordered_map<size_t, Entity> m_indexToEntityMap;
     size_t m_length = 0;
 };
 
-template <typename T>
-inline size_t GetId();
-
-class ISystem {
-   protected:
-    std::set<Entity> m_entities;
-
-   public:
-    virtual Signature GetSignature() = 0;
-    virtual void update(float) = 0;
-    virtual ~ISystem() = default;
-    void AddEntity(Entity e);
-    void RemoveEntity(Entity e);
-};
-
 class Registry {
    public:
     Registry();
+    template <typename T>
+    void RegisterComponent();
+    template <typename T>
+    void UnregisterComponent();
+    template <typename T>
+    Signature AddComponent(Entity, T);
+    template <typename T>
+    Signature RemoveComponent(Entity);
+    template <typename T>
+    T* GetComponent(Entity);
+
+    Entity CreateEntity();
+    Signature RemoveEntity(Entity);
 
     template <typename T>
-    static size_t RegisterComponent();
-
-    template <typename T>
-    static std::shared_ptr<ComponentList<T>> GetComponentArray();
-
-    template <typename T>
-    static T& GetComponent(Entity e);
-
-    template <typename T>
-    static void AddComponent(Entity e, T component);
-
-    template <typename T>
-    static void RemoveComponent(Entity e);
-
-    static void EntityDestroyed(Entity e);
-
-    static Entity CreateEntity();
-
-    static std::set<Entity> filter(std::bitset<MAX_COMPONENTS>);
+    size_t IsComponentRegistered();
 
    private:
-    static std::array<size_t, MAX_COMPONENTS> registered_components;
-    static std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
-        component_lists;
-    static std::deque<Entity> available_entities;
-    static std::unordered_map<Entity, Signature> entity_signatures;
-    template <typename T>
-    static bool is_comp_registered();
+    std::unordered_map<size_t, std::shared_ptr<IComponentArray>>
+        m_componentArrays;
+    std::deque<Entity> m_availableEntities;
+    std::unordered_map<Entity, Signature> m_entitySignatures;
+    size_t m_aliveEntities;
+};
+
+template <typename T>
+concept DerivesSystem = std::is_base_of_v<ISystem, T>;
+
+class SystemManager {
+   public:
+    template <DerivesSystem T>
+    void LoadSystem();
+    template <DerivesSystem T>
+    void UnloadSystem();
+
+    void EntityUpdated(Entity, Signature);
+    void Update(float);
+
+    template <DerivesSystem T>
+    size_t IsSystemRegistered();
+
+   private:
+    std::unordered_map<size_t, std::shared_ptr<ISystem>> m_systems;
 };
 
 class Coordinator {
-   private:
-    static std::unordered_map<size_t, std::shared_ptr<ISystem>> systems;
-    static std::unordered_map<size_t, Signature> system_signatures;
-
    public:
     template <typename T>
-    static bool LoadSystem(std::shared_ptr<ISystem> system);
+    void RegisterComponent();
     template <typename T>
-    static bool UnloadSystem();
-    static void EntityUpdated(Entity, Signature, Signature);
-    static void update(float dt);
-    static void OnEntityDestroyed(Entity);
+    void UnregisterComponent();
+    template <DerivesSystem T>
+    void LoadSystem();
+    template <DerivesSystem T>
+    void UnloadSystem();
+
+    Entity CreateEntity();
+    void DestroyEntity(Entity);
+
+    template <typename T>
+    void AddComponent(Entity, T);
+    template <typename T>
+    void RemoveComponent(Entity);
+    template <typename T>
+    T* GetComponent(Entity);
+
+    void Update(float);
+
+   private:
+    Registry m_registry;
+    SystemManager m_systemManager;
 };
 
-inline size_t counter = 1;
-inline size_t system_counter = 1;
+/* ID Generation */
+
+inline size_t component_id_counter = 1;
+inline size_t system_id_counter = 1;
 
 template <typename T>
-inline size_t GetId() {
-    static size_t id = counter++;
+inline size_t GetComponentId() {
+    static size_t id = component_id_counter++;
     return id;
 }
 
 template <typename T>
 inline size_t GetSystemId() {
-    static size_t id = system_counter++;
+    static size_t id = system_id_counter++;
     return id;
 }
 
-template <typename T>
-void ComponentList<T>::OnEntityDelete(const Entity e) {
-    if (m_entityToIndexMap.find(e) != m_entityToIndexMap.end())
-        RemoveComponent(e);
-}
-
-inline int y(int a) {
-    return a * 10;
-}
+/* Definitions */
 
 template <typename T>
-void ComponentList<T>::AddComponent(const Entity e, const T &comp) {
-    m_array[m_length] = comp;
+T* ComponentArray<T>::GetComponent(Entity e) {
+    assert(m_entityToIndexMap.contains(e) &&
+           "Entity does not contain the desired component!");
+    size_t index = m_entityToIndexMap[e];
+    T* item = &m_items[index];
+    return item;
+}
+
+template <typename T>
+void ComponentArray<T>::AddComponent(Entity e, const T& comp) {
+    assert(!m_entityToIndexMap.contains(e) &&
+           "Entity already contains a component of the same type!");
     m_entityToIndexMap[e] = m_length;
     m_indexToEntityMap[m_length] = e;
+    m_items[m_length] = comp;
     m_length++;
 }
 
 template <typename T>
-void ComponentList<T>::RemoveComponent(const Entity e) {
-    m_array[e] = m_array[m_length - 1];
-    auto lastEntity = m_indexToEntityMap[m_length - 1];
-    auto indexOfLastEntity = m_entityToIndexMap[lastEntity];
-    auto indexOfRemovedEntity = m_entityToIndexMap[e];
-    m_entityToIndexMap[lastEntity] = indexOfRemovedEntity;
-    m_indexToEntityMap[indexOfRemovedEntity] = lastEntity;
+void ComponentArray<T>::RemoveComponent(Entity e) {
+    assert(m_entityToIndexMap.contains(e) &&
+           "Entity does not contain the desired component!");
+    size_t index_of_removed = m_entityToIndexMap[e];
+    size_t last_index = m_length - 1;
+    size_t entity_at_the_end = m_indexToEntityMap[last_index];
+    m_indexToEntityMap[index_of_removed] = entity_at_the_end;
+    m_entityToIndexMap[entity_at_the_end] = index_of_removed;
     m_entityToIndexMap.erase(e);
-    m_indexToEntityMap.erase(indexOfLastEntity);
-    m_length--;
+    m_indexToEntityMap.erase(last_index);
 }
 
 template <typename T>
-T& ComponentList<T>::GetComponent(Entity e) {
-    if (m_entityToIndexMap.find(e) != m_entityToIndexMap.end()) {
-        return m_array[m_entityToIndexMap[e]];
+void ComponentArray<T>::OnEntityRemoved(Entity e) {
+    if (m_entityToIndexMap.contains(e)) {
+        RemoveComponent(e);
     }
 }
 
 template <typename T>
-size_t Registry::RegisterComponent() {
-    auto id = GetId<T>();
-    if (!is_comp_registered<T>()) {
-        component_lists[id] = std::make_shared<ComponentList<T>>();
-    }
-    return id;
-}
-
-template <typename T>
-std::shared_ptr<ComponentList<T>> Registry::GetComponentArray() {
-    auto id = GetId<T>();
-    if (is_comp_registered<T>()) {
-        std::cout << component_lists[id];
-        if (component_lists[id] == nullptr) {
-            return nullptr;
-        }
-        return std::static_pointer_cast<ComponentList<T>>(component_lists[id]);
-    } else
-        return nullptr;
-}
-
-template <typename T>
-T& Registry::GetComponent(Entity e) {
-    return GetComponentArray<T>()->GetComponent(e);
-}
-
-template <typename T>
-void Registry::AddComponent(Entity e, T component) {
-    auto id = GetId<T>();
-    if (is_comp_registered<T>()) {
-        if (entity_signatures.find(e) == entity_signatures.end()) {
-            Signature signature;
-            signature.set(id, true);
-            entity_signatures[e] = signature;
-            Coordinator::EntityUpdated(e, signature, 0);
-        } else {
-            auto signature = entity_signatures[e];
-            auto old = signature;
-            signature.set(id, true);
-            Coordinator::EntityUpdated(e, signature, old);
-        }
-        auto array = GetComponentArray<T>();
-        if (array)
-            GetComponentArray<T>()->AddComponent(e, component);
-        else {
-            std::cout << "fuck";
-        }
+void Registry::RegisterComponent() {
+    if (!IsComponentRegistered<T>()) {
+        size_t id = GetComponentId<T>();
+        m_componentArrays[id] = std::make_shared<ComponentArray<T>>();
     }
 }
 
 template <typename T>
-void Registry::RemoveComponent(Entity e) {
-    auto id = GetId<T>();
-    if (is_comp_registered<T>()) {
-        auto signature = entity_signatures[e];
-        auto old = signature;
-        signature.set(GetId<T>(), false);
-        Coordinator::EntityUpdated(e, signature, old);
-        GetComponentArray<T>()->RemoveComponent(e);
+void Registry::UnregisterComponent() {
+    if (size_t id = IsComponentRegistered<T>()) {
+        m_componentArrays.erase(id);
     }
 }
 
 template <typename T>
-bool Registry::is_comp_registered() {
-    auto id = GetId<T>();
-    //return std::find(registered_components.begin(), registered_components.end(),
-    //                 id) != std::end(registered_components);
-    return component_lists.find(id) != component_lists.end();
+Signature Registry::AddComponent(Entity e, T comp) {
+    size_t id = IsComponentRegistered<T>();
+    assert(id && "Attempting to add an unregistered component!");
+    auto array =
+        std::static_pointer_cast<ComponentArray<T>>(m_componentArrays[id]);
+    array->AddComponent(e, comp);
+    Signature new_signature = 0;
+    if (m_entitySignatures.contains(e)) {
+        new_signature = m_entitySignatures[e];
+    }
+    new_signature.set(id, true);
+    m_entitySignatures[e] = new_signature;
+    return new_signature;
 }
 
 template <typename T>
-bool Coordinator::LoadSystem(std::shared_ptr<ISystem> system) {
-    auto id = GetSystemId<T>();
-    if (systems.find(id) == std::end(systems)) {
-        system_signatures[id] = system->GetSignature();
-        systems[id] = system;
-        return true;
+Signature Registry::RemoveComponent(Entity e) {
+    size_t id = IsComponentRegistered<T>();
+    assert(id && "Attempting to remove an unregistered component!");
+    auto array =
+        std::static_pointer_cast<ComponentArray<T>>(m_componentArrays[id]);
+    array->RemoveComponent(e);
+    Signature new_signature = 0;
+    if (m_entitySignatures.contains(e)) {
+        new_signature = m_entitySignatures[e];
     }
-    return false;
+    new_signature.set(id, true);
+    m_entitySignatures[e] = new_signature;
+    return new_signature;
 }
 
 template <typename T>
-bool Coordinator::UnloadSystem() {
-    auto id = GetSystemId<T>();
-    if (systems.find(id) != std::end(systems)) {
-        systems.erase(id);
-        return true;
+T* Registry::GetComponent(Entity e) {
+    size_t id = IsComponentRegistered<T>();
+    assert(id && "Component not registered!");
+    auto array =
+        std::static_pointer_cast<ComponentArray<T>>(m_componentArrays[id]);
+    return array->GetComponent(e);
+}
+
+template <typename T>
+size_t Registry::IsComponentRegistered() {
+    size_t id = GetComponentId<T>();
+    if (m_componentArrays.contains(id))
+        return id;
+    else
+        return 0;
+}
+
+template <DerivesSystem T>
+void SystemManager::LoadSystem() {
+    if (!IsSystemRegistered<T>()) {
+        size_t id = GetSystemId<T>();
+        m_systems[id] =
+            std::static_pointer_cast<ISystem>(std::make_shared<T>());
     }
-    return false;
+}
+
+template <DerivesSystem T>
+void SystemManager::UnloadSystem() {
+    if (size_t id = IsSystemRegistered<T>()) {
+        m_systems.erase(id);
+    }
+}
+
+template <DerivesSystem T>
+size_t SystemManager::IsSystemRegistered() {
+    size_t id = GetSystemId<T>();
+    if (m_systems.contains(id))
+        return id;
+    else
+        return 0;
+}
+
+template <typename T>
+void Coordinator::AddComponent(Entity e, T comp) {
+    auto signature = m_registry.AddComponent(e, comp);
+    m_systemManager.EntityUpdated(e, signature);
+}
+
+template <typename T>
+void Coordinator::RemoveComponent(Entity e) {
+    m_registry.RemoveComponent<T>(e);
+}
+
+template <typename T>
+T* Coordinator::GetComponent(Entity e) {
+    return m_registry.GetComponent<T>(e);
+}
+
+template <typename T>
+void Coordinator::RegisterComponent() {
+    m_registry.RegisterComponent<T>();
+}
+
+template <typename T>
+void Coordinator::UnregisterComponent() {
+    m_registry.UnregisterComponent<T>();
+}
+
+template <DerivesSystem T>
+void Coordinator::LoadSystem() {
+    m_systemManager.LoadSystem<T>();
+}
+
+template <DerivesSystem T>
+void Coordinator::UnloadSystem() {
+    m_systemManager.UnloadSystem<T>();
 }
 
 #endif

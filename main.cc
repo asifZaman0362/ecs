@@ -1,74 +1,117 @@
+#include <cstdarg>
+
 #include "ecs.hpp"
-#include <iostream>
 
+struct Color {
+    float r, g, b;
+};
 
-#include "position.hpp"
-#include "velocity.hpp"
-#include "colorsystem.hpp"
-#include "render.hpp"
+struct Position {
+    float x, y;
+};
 
-#include <cstdlib>
-#include <ctime>
-#include <SFML/Graphics.hpp>
+struct Velocity {
+    float x, y;
+};
 
-Color rand_col() {
-    int x = rand() % 4;
-    return Color { .color = (Color::ColorEnum) x };
+Coordinator coordinator;
+
+Signature SignatureHelper(int count, ...) {
+    va_list args;
+    va_start(args, count);
+    Signature signature;
+    for (int i = 0; i < count; i++) {
+        size_t id = va_arg(args, size_t);
+        signature.set(id, true);
+    }
+    va_end(args);
+    return signature;
 }
 
-Position rand_pos() {
-    float x = (rand() % 100) / 10.0;
-    float y = (rand() % 100) / 10.0;
-    float z = (rand() % 100) / 10.0;
-    return { x, y, z };
-}
+class ColorSystem : public ISystem {
+   public:
+    Signature GetSignature() override {
+        return SignatureHelper(2, GetComponentId<Color>(),
+                               GetComponentId<Velocity>());
+    }
 
-Velocity rand_vel() {
-    float x = (rand() % 100) / 10.0;
-    float y = (rand() % 100) / 10.0;
-    return { x, y };
-}
+    void Update(float) override {
+        for (auto& entity : m_entities) {
+            auto velocity = coordinator.GetComponent<Velocity>(entity);
+            assert(velocity != nullptr);
+            auto color = coordinator.GetComponent<Color>(entity);
+            assert(color != nullptr);
+            color->r = (velocity->x * velocity->y);
+            color->g = velocity->x;
+            color->b = velocity->y;
+        }
+    }
+};
 
-sf::CircleShape rand_circle() {
-    float radius = rand() % 20 + 5.0f;
-    sf::CircleShape circle(radius);
-    return circle;
-}
+class VelocitySystem : public ISystem {
+   public:
+    Signature GetSignature() override {
+        return SignatureHelper(2, GetComponentId<Velocity>(),
+                               GetComponentId<Position>());
+    }
+    void Update(float dt) override {
+        for (auto entity : m_entities) {
+            Velocity* velocity = coordinator.GetComponent<Velocity>(entity);
+            assert(velocity != nullptr);
+            Position* pos = coordinator.GetComponent<Position>(entity);
+            assert(pos != nullptr);
+            pos->x += velocity->x * dt;
+            pos->y += velocity->y * dt;
+        }
+    }
+};
+
+#include "logger.hpp"
+using namespace zifmann::logger;
+
+class PrintSystem : public ISystem {
+   public:
+    Signature GetSignature() override {
+        return SignatureHelper(3, GetComponentId<Color>(),
+                               GetComponentId<Velocity>(),
+                               GetComponentId<Position>());
+    }
+    void Update(float dt) override {
+        timer += dt;
+        if (timer > 60.0f) {
+            for (auto entity : m_entities) {
+                auto color = coordinator.GetComponent<Color>(entity);
+                auto velocity = coordinator.GetComponent<Velocity>(entity);
+                auto pos = coordinator.GetComponent<Position>(entity);
+                log_debug(
+                    "\nEntity #%lu:\n\tPosition: %f %f\n\tVelocity: %f "
+                    "%f\n\tColor: %f %f %f",
+                    entity, pos->x, pos->y, velocity->x, velocity->y, color->r,
+                    color->g, color->b);
+            }
+            timer = 0;
+        }
+    }
+
+   private:
+    float timer = 0;
+};
 
 int main() {
-    sf::RenderWindow window;
-    window.create(sf::VideoMode(800, 640), "ecs");    
-    window.setVerticalSyncEnabled(false);
-    srand(time(0));
-    bool res = 0;
-    res = Coordinator::LoadSystem<ColorSystem>(std::make_shared<ColorSystem>());
-    res = Coordinator::LoadSystem<PosSys>(std::make_shared<PosSys>());
-    res = Coordinator::LoadSystem<VelocitySystem>(std::make_shared<VelocitySystem>());
-    res = Coordinator::LoadSystem<RenderSystem>(std::make_shared<RenderSystem>(&window));
-    Registry::RegisterComponent<Color>();
-    Registry::RegisterComponent<Position>();
-    Registry::RegisterComponent<Velocity>();
-    Registry::RegisterComponent<sf::CircleShape>();
-    for (int i = 0; i < 20; i++) {
-        Entity e = Registry::CreateEntity();
-        Registry::AddComponent<Color>(e, rand_col());
-        Registry::AddComponent<Position>(e, rand_pos());
-        Registry::AddComponent<Velocity>(e, rand_vel());
-        Registry::AddComponent<sf::CircleShape>(e, rand_circle());
+    coordinator.RegisterComponent<Color>();
+    coordinator.RegisterComponent<Velocity>();
+    coordinator.RegisterComponent<Position>();
+    coordinator.LoadSystem<ColorSystem>();
+    coordinator.LoadSystem<VelocitySystem>();
+    coordinator.LoadSystem<PrintSystem>();
+    for (int i = 0; i < 10; i++) {
+        Entity e = coordinator.CreateEntity();
+        coordinator.AddComponent<Color>(e, {10, 10, 10});
+        coordinator.AddComponent<Position>(e, {10, 10});
+        coordinator.AddComponent<Velocity>(e, {10, 10});
     }
-    bool running = true;
-    while (running) {
-        sf::Event e{};
-        while (window.pollEvent(e)) {
-            if (e.type == sf::Event::Closed) running = false;
-        }
-        window.clear(sf::Color::Red);
-        Coordinator::update(1.0f);
-        window.display();
+    while (true) {
+        coordinator.Update(1);
     }
-    Coordinator::UnloadSystem<ColorSystem>();
-    Coordinator::UnloadSystem<PosSys>();
-    Coordinator::UnloadSystem<VelocitySystem>();
-    Coordinator::UnloadSystem<RenderSystem>();
     return 0;
 }

@@ -1,59 +1,71 @@
 #include "ecs.hpp"
+#include "logger.hpp"
 
-std::array<size_t, MAX_COMPONENTS> Registry::registered_components;
-std::unordered_map<size_t, std::shared_ptr<IComponentArray>> Registry::component_lists;
-std::deque<Entity> Registry::available_entities;
-std::unordered_map<Entity, Signature> Registry::entity_signatures;
+using namespace zifmann::logger;
 
-std::unordered_map<size_t, std::shared_ptr<ISystem>> Coordinator::systems;
-std::unordered_map<size_t, Signature> Coordinator::system_signatures;
-
-void ISystem::AddEntity(Entity e) { m_entities.insert(e); }
-
-void ISystem::RemoveEntity(Entity e) { m_entities.erase(e); }
-
-Registry::Registry() {
-    for (size_t i = 0; i < MAX_ENTITIES; i++) {
-        available_entities.push_back(i);
-    }
+void ISystem::AddEntity(Entity e) {
+    m_entities.insert(e);
 }
 
-void Registry::EntityDestroyed(Entity e) {
-    for (auto list : component_lists) {
-        list.second->OnEntityDelete(e);
+void ISystem::RemoveEntity(Entity e) {
+    m_entities.erase(e);
+}
+
+Registry::Registry() {
+    m_aliveEntities = 0;
+    for (size_t i = 0; i < MAX_ENTITIES; i++) {
+        m_availableEntities.push_back(i);
     }
 }
 
 Entity Registry::CreateEntity() {
-    if (available_entities.size() != 0) {
-        auto id = available_entities.front();
-        available_entities.pop_front();
-        return id;
-    }
-    static_assert(1, "Ran out of entities!");
-    return 0;
+    assert(m_availableEntities.size() && "No available entity ID's to give out");
+    Entity id = m_availableEntities.front();
+    m_availableEntities.pop_front();
+    m_aliveEntities++;
+    log_debug("Added entity. Available %lu: ", m_aliveEntities);
+    return id;
 }
 
-void Coordinator::update(float dt) {
-    auto size = systems.size();
-    for (auto system : systems) {
-        system.second->update(dt);
+Signature Registry::RemoveEntity(Entity e) {
+    assert(std::find(m_availableEntities.begin(), m_availableEntities.end(), e) == m_availableEntities.end() && "Attempting to remove a non-existent entity!");
+    m_availableEntities.push_back(e);
+    Signature signature = m_entitySignatures[e];
+    for (auto comp_array : m_componentArrays) {
+        if (signature.test(comp_array.first)) {
+            comp_array.second->OnEntityRemoved(e);
+        }
     }
+    m_aliveEntities--;
+    return signature;
 }
 
-void Coordinator::EntityUpdated(Entity e, Signature new_signature,
-                                Signature old) {
-    for (auto entry : system_signatures) {
-        if ((entry.second & new_signature) == new_signature) {
-            systems[entry.first]->AddEntity(e);
-        } else if ((entry.second & old) != old) {
-            systems[entry.first]->RemoveEntity(e);
+void SystemManager::EntityUpdated(Entity e, Signature s) {
+    for (auto& system : m_systems) {
+        auto system_s = system.second->GetSignature();
+        if ((system_s & s) == system_s) {
+            system.second->AddEntity(e);
+        } else {
+            system.second->RemoveEntity(e);
         }
     }
 }
 
-void Coordinator::OnEntityDestroyed(Entity e) {
-    for (auto entry : systems) {
-        entry.second->RemoveEntity(e);
+void SystemManager::Update(float dt) {
+    for (auto& system : m_systems) {
+        system.second->Update(dt);
     }
+}
+
+Entity Coordinator::CreateEntity() {
+    return m_registry.CreateEntity();
+}
+
+void Coordinator::DestroyEntity(Entity e) {
+    m_registry.RemoveEntity(e);
+    m_systemManager.EntityUpdated(e, 0);
+}
+
+void Coordinator::Update(float dt) {
+    m_systemManager.Update(dt);
 }
